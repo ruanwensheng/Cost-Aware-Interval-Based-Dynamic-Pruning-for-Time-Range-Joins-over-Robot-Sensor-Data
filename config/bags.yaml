@@ -1,0 +1,11 @@
+# --bag N  ->  file in data/bags/.  Numbers and durations follow Table 3 of the Rosario v2 paper.
+# Download URL = base_url + file name.
+base_url: "http://fs01.cifasis-conicet.gov.ar:90/~robot_desmalezador/rosariov2/sequences/"
+bags:
+  1: {file: "2023-12-22-13-14-16.compressed.bag", duration_s: 940}
+  2: {file: "2023-12-22-14-29-43.compressed.bag", duration_s: 1011}
+  3: {file: "2023-12-22-16-31-08.compressed.bag", duration_s: 943}
+  4: {file: "2023-12-26-13-39-43.compressed.bag", duration_s: 2506}
+  5: {file: "2023-12-26-15-10-15.compressed.bag", duration_s: 796}   # shortest, about 31.5 GB: use this first
+  6: {file: "2023-12-26-15-48-38.compressed.bag", duration_s: 1862}
+# Small add-on bag with post-processed GNSS for the same sequence: "<sequence>_ppk_gnss.bag"

@@ -1,0 +1,10 @@
+duckdb==1.5.6
+pyarrow
+pandas
+numpy
+rosbags
+lz4
+psutil
+pyyaml
+matplotlib
+jupyterlab

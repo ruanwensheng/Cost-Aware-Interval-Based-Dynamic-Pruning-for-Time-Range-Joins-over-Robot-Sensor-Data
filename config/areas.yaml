@@ -1,0 +1,10 @@
+# Areas used by --area. A box in latitude / longitude (degrees).
+# Fill these in AFTER  python eda_bag.py --bag 5 --action track  (plot of the GNSS trajectory).
+# Good areas for this project: places the robot passes SEVERAL times, at moments far apart
+# (for example one strip across the crop rows). An area visited only once gives L4 = L3.
+X:
+  lat_min: null
+  lat_max: null
+  lon_min: null
+  lon_max: null
+  note: "to be chosen from the trajectory plot"

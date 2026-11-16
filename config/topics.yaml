@@ -1,0 +1,8 @@
+# Which topic plays which role in the queries.
+# Candidates come from Table 9 of the Rosario v2 paper. The exact names MUST be checked with
+#   python eda_bag.py --bag 5 --action info
+# and corrected here before running anything else.
+imu:   "/realsense/imu"              # sensor_msgs/Imu, about 200 Hz (check)
+gnss:  "/reach1/fix"                 # sensor_msgs/NavSatFix, RTK, about 5 Hz. Paper writes "/reach */fix": pick ONE real name
+image: "/realsense/color/image_raw"  # sensor_msgs/Image, heavy (only for the optional queries Q5, Q6)
+odom:  "/odom"                       # nav_msgs/Odometry (only for the optional query Q6)
