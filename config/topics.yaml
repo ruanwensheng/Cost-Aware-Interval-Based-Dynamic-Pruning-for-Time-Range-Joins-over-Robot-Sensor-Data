@@ -1,8 +1,13 @@
-# Which topic plays which role in the queries.
-# Candidates come from Table 9 of the Rosario v2 paper. The exact names MUST be checked with
-#   python eda_bag.py --bag 5 --action info
-# and corrected here before running anything else.
-imu:   "/realsense/imu"              # sensor_msgs/Imu, about 200 Hz (check)
-gnss:  "/reach1/fix"                 # sensor_msgs/NavSatFix, RTK, about 5 Hz. Paper writes "/reach */fix": pick ONE real name
+# Which topic plays which role in the queries. Checked on bag 5 with eda_bag.py (see docs/eda_results_bag5.md).
+imu:   "/realsense/imu"              # sensor_msgs/Imu, 198.96 Hz, median period 4.98 ms
+# gnss: bag 5 has /reach_1/fix, /reach_2/fix, /reach_3/fix (5 Hz, 3982 msgs each, all RTK in samples).
+#   Largest gap between two consecutive fixes over the whole bag (INDEX DATA):
+#   /reach_1/fix 0.223 s, /reach_3/fix 0.327 s, /reach_2/fix 0.368 s -> /reach_1/fix is the most regular.
+#   All pipelines use this topic.
+gnss:  "/reach_1/fix"                # sensor_msgs/NavSatFix, RTK, 5 Hz, median period 0.200 s
 image: "/realsense/color/image_raw"  # sensor_msgs/Image, heavy (only for the optional queries Q5, Q6)
 odom:  "/odom"                       # nav_msgs/Odometry (only for the optional query Q6)
+
+# Default query parameters (CLI flags override them).
+tol: 0.1   # Q3 tolerance (s) = half the GNSS period 0.200 s
+gap: 0.3   # L4: split a visit when two consecutive in-area GNSS points are more than gap seconds apart

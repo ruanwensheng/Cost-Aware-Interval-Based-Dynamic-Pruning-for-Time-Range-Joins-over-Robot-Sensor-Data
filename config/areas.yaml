@@ -1,10 +1,30 @@
-# Areas used by --area. A box in latitude / longitude (degrees).
-# Fill these in AFTER  python eda_bag.py --bag 5 --action track  (plot of the GNSS trajectory).
-# Good areas for this project: places the robot passes SEVERAL times, at moments far apart
-# (for example one strip across the crop rows). An area visited only once gives L4 = L3.
+# Areas used by --area: a lat/lon box (degrees). Chosen in M2 (tools/m2_feasibility.py),
+# from the bag-5 GNSS track (results/eda/track.png, results/m2/areas.png).
+# X is the area used by the run matrix (CLAUDE.md section 7) = A.
+A:
+  lat_min: -33.040083446
+  lat_max: -33.039902516
+  lon_min: -60.882213924
+  lon_max: -60.882106764
+  note: 10 m strip across all passes, near the east turn; x 55..65 m, y -10..10 m
+    around lat0 -33.039992981, lon0 -60.882803303
+B:
+  lat_min: -33.039956795
+  lat_max: -33.039920609
+  lon_min: -60.882481823
+  lon_max: -60.882396095
+  note: 'small box on pass 2 only (control: L4 = L3); x 30..38 m, y 4..8 m around
+    lat0 -33.039992981, lon0 -60.882803303'
+C:
+  lat_min: -33.040083446
+  lat_max: -33.039902516
+  lon_min: -60.883231943
+  lon_max: -60.882374663
+  note: 80 m strip across all passes (large area); x -40..40 m, y -10..10 m around
+    lat0 -33.039992981, lon0 -60.882803303
 X:
-  lat_min: null
-  lat_max: null
-  lon_min: null
-  lon_max: null
-  note: "to be chosen from the trajectory plot"
+  lat_min: -33.040083446
+  lat_max: -33.039902516
+  lon_min: -60.882213924
+  lon_max: -60.882106764
+  note: same as A

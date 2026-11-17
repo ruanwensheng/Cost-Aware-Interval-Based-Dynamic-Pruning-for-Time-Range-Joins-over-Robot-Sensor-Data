@@ -1,19 +1,3 @@
-"""EDA of a ROS 1 bag, without ever loading the whole file into RAM.
-
-    python eda_bag.py --bag 5 --action info        # index only: topics, types, counts, Hz
-    python eda_bag.py --bag 5 --action chunks      # one line per chunk -> results/eda/chunks.csv
-    python eda_bag.py --bag 5 --action topic-mix   # how mixed the chunks are (is L1 useful?)
-    python eda_bag.py --bag 5 --action rates       # Hz, period jitter, message size (sampled chunks)
-    python eda_bag.py --bag 5 --action track       # decode GNSS only -> results/eda/track.png
-
-What each action reads from disk:
-    info, topic-mix : the index section at the end of the file only.
-    chunks          : + the small CHUNK record header of every chunk (no decompression).
-    rates           : + INDEX DATA of the chunks in --window, and decompresses --limit of them.
-    track           : decompresses every chunk that holds a GNSS message, one at a time.
-
-Time t = seconds since the first message of the bag (bag record time, same clock as chunk info).
-"""
 from __future__ import annotations
 
 import argparse
@@ -33,6 +17,8 @@ ROLES = ("imu", "gnss", "image", "odom")
 
 # ---------------------------------------------------------------- helpers
 def fmt_bytes(n: float) -> str:
+    """
+    TO TRASFORM BYTE TO KB, MB, GB :))"""
     for unit in ("B", "KB", "MB", "GB"):
         if abs(n) < 1024 or unit == "GB":
             return f"{n:.1f} {unit}" if unit != "B" else f"{n:.0f} B"
@@ -41,39 +27,69 @@ def fmt_bytes(n: float) -> str:
 
 
 def topic_table(bag: BagFile) -> pd.DataFrame:
-    """One row per topic (several connections can share a topic)."""
-    counts = bag.topic_counts()
-    rows: dict[str, dict] = {}
-    for c in bag.connections.values():
+    """
+    input: bagfile object
+    process:
+        1. get number of messages for each topic (counts), init rows dict
+        2. iterate through all connections (all topics) in that bag to count, return r (dict of topic: n_mess)
+        3. transform rows (dict) into a df obj & add frequency (hz) column
+    output: df obj (col: topic - msgtype - conns - messgae_cnt - freq
+                    grain: 1 topic is one row, it s metadata of that topic in the bag file )
+    """
+    counts = bag.topic_counts()  #1
+    rows: dict[str, dict] = {}   # 1
+    for c in bag.connections.values(): #2
         r = rows.setdefault(c.topic, {"topic": c.topic, "type": c.msgtype, "conns": [], "messages": 0})
         r["conns"].append(c.conn)
         r["messages"] += counts.get(c.conn, 0)
+    #3
     df = pd.DataFrame(rows.values()).sort_values("topic").reset_index(drop=True)
     df["hz"] = df["messages"] / bag.duration_s
     return df
 
 
 def role_conns(bag: BagFile) -> dict[str, set[int]]:
-    """Role (imu, gnss, ...) -> connection ids, using config/topics.yaml."""
+    """
+    input: bagfile obj
+    process:
+        1. get topics from yaml
+        2. for each role (imu, gnss, image, odom), get its set of connections 
+    output: dict(str: set), for each role (imu, gnss, image, odom), get its set of connections
+
+    """
     cfg = topics()
     return {role: set(bag.conns_for_topic(cfg[role])) for role in ROLES if cfg.get(role)}
 
 
 def chunk_bytes_approx(bag: BagFile) -> np.ndarray:
-    """On-disk bytes per chunk from the gap between consecutive chunk positions.
+    """
+    input: bagfile obj
+    output: np ndarray (for each chunk in file bag, return its approximate size in bytes )
 
-    Includes the chunk's INDEX DATA records (small). No extra disk reads.
     """
     pos = np.array([c.chunk_pos for c in bag.chunks] + [bag.index_pos], dtype=np.int64)
     return np.diff(pos)
 
 
 def chunks_in_window(bag: BagFile, w0: float, w1: float):
+    """
+    return list of chunks in window time 
+    """
     lo, hi = bag.start_ns + int(w0 * 1e9), bag.start_ns + int(w1 * 1e9)
     return [c for c in bag.chunks if c.end_ns >= lo and c.start_ns <= hi]
 
 
 def progress(i: int, n: int, t0: float, nbytes: int | None = None) -> None:
+
+    """
+    input: i: thứ tự chunk đang xử lý, 
+           n: tổng lượng chunk,
+           t0: thời điểm đo thời gian,
+           nbytes: int , tổng byte đã đọc 
+    process:
+           1. tính thời gian đã qua
+           2. tinsg rate
+           3. in trạng thái ra màn hình              """
     el = time.perf_counter() - t0
     rate = "" if nbytes is None else f", {fmt_bytes(nbytes)} read, {nbytes / 1e6 / max(el, 1e-9):.0f} MB/s"
     print(f"\r  {i}/{n} chunks, {el:.0f} s{rate}   ", end="", flush=True)
@@ -289,10 +305,41 @@ def act_track(bag: BagFile, a) -> None:
     print(f"{len(df)} fixes, t {df['t'].min():.1f}..{df['t'].max():.1f} s, "
           f"period median {np.median(dt):.3f} s, max gap {dt.max():.2f} s")
     print(f"lat {df['lat'].min():.7f}..{df['lat'].max():.7f}, lon {df['lon'].min():.7f}..{df['lon'].max():.7f}")
-    print(f"status counts: {df['status'].value_counts().sort_index().to_dict()}  (-1 = no fix)")
+    names = {-1: "no fix", 0: "fix", 1: "SBAS", 2: "GBAS/RTK"}
+    print("status (NavSatStatus.status):")
+    for s, n in df["status"].value_counts().sort_index().items():
+        print(f"  {s:>2} {names.get(s, '?'):9s} {n:6d} points ({n / len(df):7.2%})")
     print(f"stamp - record time: median {np.median((df['stamp_ns'] - df['t_ns']) / 1e9):.3f} s")
+
+    outages = find_outages(df, gap_s=2 * np.median(dt))
+    out_gaps = EDA_DIR / "gnss_outages.csv"
+    outages.to_csv(out_gaps, index=False, float_format="%.3f")
+    print(f"signal loss segments (time gap > {2 * np.median(dt):.3f} s, or status below the best status "
+          f"{df['status'].max()}): {len(outages)}")
+    if len(outages):
+        print(outages.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     plot_track(df, a.window, EDA_DIR / "track.png", topic)
-    print(f"wrote {out_csv.relative_to(RESULTS_DIR.parent)} and results/eda/track.png")
+    print(f"wrote {out_csv.relative_to(RESULTS_DIR.parent)}, {out_gaps.relative_to(RESULTS_DIR.parent)} "
+          f"and results/eda/track.png")
+
+
+def find_outages(df: pd.DataFrame, gap_s: float) -> pd.DataFrame:
+    """Signal-loss segments: time gaps between consecutive fixes > gap_s, and runs of
+    fixes whose status is below the best status seen (e.g. RTK lost, or no fix)."""
+    rows = []
+    t = df["t"].to_numpy()
+    for i in np.flatnonzero(np.diff(t) > gap_s):
+        rows.append({"kind": "time_gap", "t_start": t[i], "t_end": t[i + 1],
+                     "duration": t[i + 1] - t[i], "n_points": 0, "status": np.nan})
+    bad = (df["status"] < df["status"].max()).to_numpy()
+    if bad.any():
+        edges = np.flatnonzero(np.diff(np.r_[0, bad.astype(int), 0]))   # run starts / ends
+        for s, e in zip(edges[::2], edges[1::2]):
+            rows.append({"kind": "low_status", "t_start": t[s], "t_end": t[e - 1],
+                         "duration": t[e - 1] - t[s], "n_points": e - s,
+                         "status": df["status"].iloc[s:e].min()})
+    cols = ["kind", "t_start", "t_end", "duration", "n_points", "status"]
+    return pd.DataFrame(rows, columns=cols).sort_values("t_start").reset_index(drop=True)
 
 
 def plot_track(df: pd.DataFrame, window, out: Path, topic: str) -> None:
@@ -308,12 +355,15 @@ def plot_track(df: pd.DataFrame, window, out: Path, topic: str) -> None:
     fig = plt.figure(figsize=(14, 8), constrained_layout=True)
     gs = fig.add_gridspec(2, 2, width_ratios=[1.3, 1])
     ax = fig.add_subplot(gs[:, 0])
-    ax.plot(d["lon"], d["lat"], color="#c8ccd1", lw=1, zorder=1, label="whole bag")
-    sc = ax.scatter(win["lon"], win["lat"], c=win["t"], cmap="Blues", vmin=w0 - (w1 - w0) * 0.3, vmax=w1,
-                    s=10, zorder=2, label=f"window {w0:g}..{w1:g} s")
-    ax.plot(d["lon"].iloc[0], d["lat"].iloc[0], "o", ms=8, mfc="white", mec=ink, zorder=3, label="start")
+    ax.plot(d["lon"], d["lat"], color="#c8ccd1", lw=0.8, zorder=1)
+    tmin, tmax = d["t"].min(), d["t"].max()
+    sc = ax.scatter(d["lon"], d["lat"], c=d["t"], cmap="Blues", vmin=tmin - 0.15 * (tmax - tmin), vmax=tmax,
+                    s=6, zorder=2, linewidths=0)
+    ax.scatter(win["lon"], win["lat"], s=14, facecolors="none", edgecolors=ink, linewidths=0.4, zorder=3,
+               label=f"window {w0:g}..{w1:g} s")
+    ax.plot(d["lon"].iloc[0], d["lat"].iloc[0], "o", ms=8, mfc="white", mec=ink, zorder=4, label="start")
     cb = fig.colorbar(sc, ax=ax, shrink=0.6, pad=0.01)
-    cb.set_label("t in window (s)", color=muted)
+    cb.set_label("t since bag start (s)", color=muted)
     ax.set_xlabel("longitude (deg)", color=muted)
     ax.set_ylabel("latitude (deg)", color=muted)
     ax.set_title(f"GNSS track ({topic})", color=ink, loc="left")
@@ -339,8 +389,11 @@ def plot_track(df: pd.DataFrame, window, out: Path, topic: str) -> None:
     plt.close(fig)
 
 
-ACTIONS = {"info": act_info, "chunks": act_chunks, "topic-mix": act_topic_mix,
-           "rates": act_rates, "track": act_track}
+ACTIONS = {"info": act_info, 
+           "chunks": act_chunks, 
+           "topic-mix": act_topic_mix,
+           "rates": act_rates, 
+           "track": act_track}
 
 
 def main() -> None:

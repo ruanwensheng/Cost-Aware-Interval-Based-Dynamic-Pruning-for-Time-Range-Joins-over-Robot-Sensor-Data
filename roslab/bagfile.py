@@ -245,6 +245,23 @@ class BagFile:
         ch, raw = self.read_chunk_raw(chunk)
         return ch, self.decompress(ch, raw)
 
+    def read_index_entries(self, chunk: ChunkInfo, ch: ChunkHeader | None = None) -> dict[int, np.ndarray]:
+        """Like read_index_data, but returns the raw entries (fields sec, nsec, offset) per connection.
+
+        `offset` is the position of the MESSAGE DATA record inside the decompressed chunk.
+        """
+        if ch is None:
+            ch = self.read_chunk_header(chunk)
+        self._f.seek(ch.end_pos)
+        out: dict[int, np.ndarray] = {}
+        for _ in range(len(chunk.counts)):
+            rec = self._read_record_header()
+            if rec is None or rec[0]["op"][0] != OP_INDEX_DATA:
+                raise BagError(f"expected INDEX DATA after chunk {chunk.idx}")
+            h, dlen = rec
+            out[_u32(h["conn"])] = np.frombuffer(self._read_exact(dlen), dtype=INDEX_ENTRY)
+        return out
+
     def read_index_data(self, chunk: ChunkInfo, ch: ChunkHeader | None = None) -> dict[int, np.ndarray]:
         """Per-connection message times (ns, int64) of one chunk, WITHOUT decompressing it.
 
