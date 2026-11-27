@@ -1,0 +1,9 @@
+# Written by tools/pick_shock.py. Condition of test 5: |sqrt(ax^2+ay^2+az^2) - g0| > threshold
+g0: 9.783232856298069
+threshold: 8.970006930705553
+quantile: 0.9999
+n_samples: 158462
+n_shock_samples: 16
+n_events: 8
+event_gap_s: 0.3
+source: data/parquet/imu.parquet

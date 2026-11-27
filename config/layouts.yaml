@@ -1,0 +1,13 @@
+# Where the data lives. Code is the same for every layout; only this file and .env differ.
+# No constants here: they come from the benchmark files of each layout (roslab.storage.layout_constants).
+ssd:
+  kind: local
+  root: data                              # key of a file = path under data/, e.g. parquet/imu.parquet
+  cache_cmd_env: ROSLAB_DROP_CACHE_CMD    # command that drops the OS file cache (Windows: RAMMap64.exe -Et)
+  evict_file: data/evict.bin              # no command: read this file (1.5 x RAM, tools/make_evict_file.py)
+lan:
+  kind: s3                                # MinIO
+  prefix: ""
+  env: {endpoint: S3_ENDPOINT, bucket: S3_BUCKET, region: S3_REGION,
+        key_id: AWS_ACCESS_KEY_ID, secret: AWS_SECRET_ACCESS_KEY}
+  cache_cmd_env: ROSLAB_DROP_CACHE_CMD_LAN   # drops the cache of the MinIO machine, e.g. over ssh

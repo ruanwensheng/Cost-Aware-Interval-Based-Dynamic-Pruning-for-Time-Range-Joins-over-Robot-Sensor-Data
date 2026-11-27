@@ -7,4 +7,5 @@ lz4
 psutil
 pyyaml
 matplotlib
+boto3
 jupyterlab

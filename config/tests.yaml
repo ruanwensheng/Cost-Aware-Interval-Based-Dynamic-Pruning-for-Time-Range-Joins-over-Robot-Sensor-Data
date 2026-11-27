@@ -1,0 +1,31 @@
+# The 6 tests of the cost-function study (PROMPT_cost_function.md, section 4).
+# Every test is a range semi-join (type 1): rows of `target` with t in [w0, w1] that are within
+# tol of a row of `cond` satisfying the condition; cond rows are taken in [w0 - tol, w1 + tol].
+bag: 5
+ell: 10.0
+tol: 0.1
+gap: 0.3
+
+# Extra areas, added to config/areas.yaml.
+# W = box x -100..85 m, y -15..15 m around lat0 -33.039992981, lon0 -60.882803303
+# (same formula as boxes_latlon in tools/m2_feasibility.py); it covers the whole path.
+areas_extra:
+  W: {lat_min: -33.040128678, lat_max: -33.039857284, lon_min: -60.883874902, lon_max: -60.881892444}
+
+cost_function:
+  blocks: formula                 # formula: row groups from equations (1)-(3); exact: counted from the footer
+  l2_includes_condition: false    # true: C_L2 also pays for reading the cond table (section 5.4)
+
+# window: whole = [0, duration]; or [w0, w1] in seconds since the bag start
+# point_a: plain = compare C_p1 with C_L2; stats = also use GNSS statistics (cond = gnss only)
+tests:
+  - {id: "1",    label: "1 (area A)",                            cond: gnss, target: imu,  area: A,     window: whole,     point_a: plain}
+  - {id: "2",    label: "2 (area B)",                            cond: gnss, target: imu,  area: B,     window: whole,     point_a: plain}
+  - {id: "3",    label: "3 (area C)",                            cond: gnss, target: imu,  area: C,     window: whole,     point_a: plain}
+  - {id: "4-10", label: "4 (area A, 10 s)",                      cond: gnss, target: imu,  area: A,     window: [350, 360], point_a: plain}
+  - {id: "4-20", label: "4 (area A, 20 s)",                      cond: gnss, target: imu,  area: A,     window: [350, 370], point_a: plain}
+  - {id: "4-40", label: "4 (area A, 40 s)",                      cond: gnss, target: imu,  area: A,     window: [350, 390], point_a: plain}
+  - {id: "4-80", label: "4 (area A, 80 s)",                      cond: gnss, target: imu,  area: A,     window: [350, 430], point_a: plain}
+  - {id: "5",    label: "5 (shock on IMU)",                      cond: imu,  target: gnss, shock: true, window: whole,     point_a: plain}
+  - {id: "6",    label: "6 (area W, plain point A)",             cond: gnss, target: imu,  area: W,     window: whole,     point_a: plain}
+  - {id: "6s",   label: "6 (area W, point A + GNSS statistics)", cond: gnss, target: imu,  area: W,     window: whole,     point_a: stats}

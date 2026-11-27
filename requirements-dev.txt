@@ -1,0 +1,3 @@
+# Only for the tests (tests/test_engines.py runs the bag engine against a fake S3 server).
+-r requirements.txt
+moto[server]

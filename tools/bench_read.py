@@ -1,6 +1,6 @@
 """Measure the cost of reading bag chunks (input for the cost model).
 
-    python tools/bench_read.py --bag 5 [--window 300 420] [--n 500] [--seed 0] [--evict-gb 12]
+    python tools/bench_read.py --bag 5 [--window 300 420] [--n 500] [--seed 0]
 
 Cases (per-chunk time, median over N chunks):
     header       read only the CHUNK record header           (buffering = default and = 0)
@@ -10,8 +10,8 @@ Cases (per-chunk time, median over N chunks):
 Random cases use N chunks drawn at random inside the window, visited in file order.
 
 Each case runs cold and warm:
-    cold  run $ROSLAB_DROP_CACHE_CMD if set; otherwise evict the OS file cache by reading
-          --evict-gb of the same bag OUTSIDE the window (more than the RAM size).
+    cold  roslab.storage.drop_cache("ssd") before the case; the cache column gets what it returns:
+          "cold" ($ROSLAB_DROP_CACHE_CMD), "evict" (read data/evict.bin, 1.5 x RAM) or "unknown".
     warm  run the case once (not measured), then measure.
 
 Output: results/bench/read_costs.csv (one row per case x cache, then the cost-model constants).
@@ -20,11 +20,9 @@ from __future__ import annotations
 
 import argparse
 import bz2
-import os
 import platform
 import random
 import struct
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -36,6 +34,7 @@ import psutil
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from roslab.bagfile import BagFile, ChunkInfo  # noqa: E402
 from roslab.config import RESULTS_DIR, bag_path  # noqa: E402
+from roslab.storage import drop_cache  # noqa: E402
 
 U32 = struct.Struct("<I")
 
@@ -92,25 +91,11 @@ def run_case(path: Path, chunks: list[ChunkInfo], case: str, buffering: int) -> 
     return out
 
 
-def evict(bag: BagFile, w_lo: int, w_hi: int, gb: float, rr: list[int]) -> str:
-    cmd = os.environ.get("ROSLAB_DROP_CACHE_CMD")
-    if cmd:
-        subprocess.run(cmd, shell=True, check=True)
-        return f"ROSLAB_DROP_CACHE_CMD ({cmd})"
-    # Read `gb` GB of the bag outside [w_lo, w_hi) in 8 MB blocks, rotating the start
-    # so successive evictions do not re-read only what is already cached.
-    regions = [(bag.chunks[0].chunk_pos, w_lo), (w_hi, bag.index_pos)]
-    blocks = [(p, min(8 << 20, e - p)) for s, e in regions for p in range(s, e, 8 << 20)]
-    need, i, done = int(gb * 1e9), rr[0], 0
+def evict() -> tuple[str, str]:
+    """drop_cache('ssd'). Returns (cache state, description)."""
     t0 = time.perf_counter()
-    with open(bag.path, "rb", buffering=0) as f:
-        while done < need:
-            p, n = blocks[i % len(blocks)]
-            f.seek(p)
-            done += len(f.read(n))
-            i += 1
-    rr[0] = i
-    return f"read {done / 1e9:.1f} GB of the bag outside the window ({time.perf_counter() - t0:.0f} s)"
+    state = drop_cache("ssd")
+    return state, f"drop_cache('ssd') -> {state} ({time.perf_counter() - t0:.0f} s)"
 
 
 def main() -> None:
@@ -119,7 +104,6 @@ def main() -> None:
     ap.add_argument("--window", type=float, nargs=2, default=[300.0, 420.0])
     ap.add_argument("--n", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--evict-gb", type=float, default=12.0)
     ap.add_argument("--out", type=Path, default=RESULTS_DIR / "bench" / "read_costs.csv")
     a = ap.parse_args()
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -130,20 +114,17 @@ def main() -> None:
         win = [c for c in bag.chunks if c.end_ns >= lo and c.start_ns <= hi]
         rnd = sorted(random.Random(a.seed).sample(win, a.n), key=lambda c: c.chunk_pos)
         seq = win[:a.n]
-        w_lo, w_hi = win[0].chunk_pos, bag.chunks[win[-1].idx + 1].chunk_pos
         ram = psutil.virtual_memory().total / 1e9
         print(f"{len(win)} chunks in window {a.window}; random sample {len(rnd)}, sequential {len(seq)}; "
               f"RAM {ram:.1f} GB")
-        if not os.environ.get("ROSLAB_DROP_CACHE_CMD") and a.evict_gb < ram:
-            print(f"!! --evict-gb {a.evict_gb} < RAM {ram:.1f} GB: cold runs may still hit the cache")
 
         plan = [("header", -1, rnd), ("header", 0, rnd), ("raw", -1, rnd),
                 ("raw_bz2", -1, rnd), ("seq_bz2", -1, seq)]
-        rows, rr = [], [0]
+        rows = []
         for case, buf, chunks in plan:
             for cache in ("cold", "warm"):
                 if cache == "cold":
-                    method = evict(bag, w_lo, w_hi, a.evict_gb, rr)
+                    cache, method = evict()
                 else:
                     run_case(path, chunks, case, buf)          # warm-up, not measured
                     method = "warm-up run of the same case"
@@ -165,7 +146,7 @@ def main() -> None:
         return next(r for r in rows if r["case"] == case and r["cache"] == cache and r["buffering"] == buf)
 
     consts = []
-    for cache in ("cold", "warm"):
+    for cache in dict.fromkeys(r["cache"] for r in rows):         # drop_cache state ("cold"/"evict"/...), "warm"
         fixed = pick("header", cache)["read_median_ms"]
         raw = pick("raw", cache)
         slope, icpt = np.polyfit(sizes, raw["_read"], 1)        # seconds per byte, seconds

@@ -100,12 +100,25 @@ class ChunkHeader:
 
 
 class BagFile:
-    """Index-only view of a bag. Use as a context manager."""
+    """Index-only view of a bag. Use as a context manager.
 
-    def __init__(self, path: Path | str):
+    With `fileobj`, the bag is read from that seekable file-like object and `path` is only a
+    name; `size` is its total size (taken from the object when not given). The object is not
+    closed by close().
+    """
+
+    def __init__(self, path: Path | str, fileobj=None, size: int | None = None):
         self.path = Path(path)
-        self.file_size = self.path.stat().st_size
-        self._f = open(self.path, "rb")
+        self._own = fileobj is None
+        if self._own:
+            self.file_size = self.path.stat().st_size
+            self._f = open(self.path, "rb")
+        else:
+            if size is None:
+                fileobj.seek(0, 2)
+                size = fileobj.tell()
+            self.file_size = size
+            self._f = fileobj
         self.index_pos = 0
         self.conn_count = 0
         self.chunk_count = 0
@@ -122,7 +135,8 @@ class BagFile:
         self.close()
 
     def close(self) -> None:
-        self._f.close()
+        if self._own:
+            self._f.close()
 
     # ---------- low-level record reading ----------
     def _read_record_header(self) -> tuple[dict[str, bytes], int] | None:
@@ -146,6 +160,7 @@ class BagFile:
     # ---------- index ----------
     def open(self) -> None:
         f = self._f
+        f.seek(0)
         if f.read(len(MAGIC)) != MAGIC:
             raise BagError(f"{self.path.name}: not a ROS bag v2.0 file")
         rec = self._read_record_header()
